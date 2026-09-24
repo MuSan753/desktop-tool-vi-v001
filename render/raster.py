@@ -42,6 +42,7 @@ class Part:
     color: np.ndarray      # (3,) 0~1 的基础色
     gloss: float = 0.0     # 高光强度
     toon: bool = True      # False 则走连续光照（用于金属感/暗部）
+    vcolors: np.ndarray | None = None  # (N, 3) 逐顶点色，有则优先（渐变用）
 
 
 class Renderer:
@@ -68,9 +69,9 @@ class Renderer:
         self.key_dir = normalize(np.array([-0.55, 0.72, 0.62], dtype=np.float32))
         self.fill_dir = normalize(np.array([0.75, 0.15, 0.45], dtype=np.float32))
         self.key_color = np.array([1.0, 0.975, 0.94], dtype=np.float32)
-        self.key_intensity = 0.68
-        self.fill_intensity = 0.16
-        self.ambient = 0.16
+        self.key_intensity = 0.5
+        self.fill_intensity = 0.14
+        self.ambient = 0.34
         self.rim_color = np.array([1.0, 0.94, 0.96], dtype=np.float32)
         self.rim_strength = 0.4
         self.outline_px = 2  # 超采样坐标下的描边宽度
@@ -123,21 +124,26 @@ class Renderer:
             screen = np.stack([sx, sy], axis=1)
 
             faces = part.faces
+            vcolors = part.vcolors
             for idx in range(faces.shape[0]):
                 a, b, c = faces[idx]
                 if not (ok[a] and ok[b] and ok[c]):
                     continue
+                ca = vcolors[a] if vcolors is not None else None
+                cb = vcolors[b] if vcolors is not None else None
+                cc = vcolors[c] if vcolors is not None else None
                 self._triangle(
                     screen[a], screen[b], screen[c],
                     part.verts[a], part.verts[b], part.verts[c],
                     part.normals[a], part.normals[b], part.normals[c],
                     depth[a], depth[b], depth[c],
-                    part, eye,
+                    part, eye, ca, cb, cc,
                 )
         return self._compose()
 
     # ---------- 单个三角面 ----------
-    def _triangle(self, p0, p1, p2, w0, w1, w2, n0, n1, n2, d0, d1, d2, part, eye) -> None:
+    def _triangle(self, p0, p1, p2, w0, w1, w2, n0, n1, n2, d0, d1, d2, part, eye,
+                  ca=None, cb=None, cc=None) -> None:
         xmin = int(np.floor(min(p0[0], p1[0], p2[0])))
         xmax = int(np.ceil(max(p0[0], p1[0], p2[0])))
         ymin = int(np.floor(min(p0[1], p1[1], p2[1])))
@@ -194,7 +200,16 @@ class Renderer:
         n_len = np.linalg.norm(N, axis=-1, keepdims=True)
         N = N / np.where(n_len > 1e-6, n_len, 1.0)
 
-        rgb = self._shade(P, N, part, eye)
+        if ca is not None and cb is not None and cc is not None:
+            C = (
+                np.expand_dims(l0 / d0, -1) * ca
+                + np.expand_dims(l1 / d1, -1) * cb
+                + np.expand_dims(l2 / d2, -1) * cc
+            ) * inv_iw[..., None]
+        else:
+            C = None
+
+        rgb = self._shade(P, N, part, eye, C)
 
         target_color = self.color[ymin:ymax + 1, xmin:xmax + 1]
         np.copyto(target_color, rgb, where=mask[..., None])
@@ -203,7 +218,7 @@ class Renderer:
         np.copyto(target_alpha, np.where(mask, np.uint8(255), target_alpha))
 
     # ---------- 着色 ----------
-    def _shade(self, P, N, part, eye) -> np.ndarray:
+    def _shade(self, P, N, part, eye, C=None) -> np.ndarray:
         V = eye - P
         v_len = np.linalg.norm(V, axis=-1, keepdims=True)
         V = V / np.where(v_len > 1e-6, v_len, 1.0)
@@ -213,9 +228,9 @@ class Renderer:
 
         if part.toon:
             bands = np.select(
-                [key > 0.66, key > 0.40, key > 0.18],
-                [1.0, 0.66, 0.44],
-                default=0.30,
+                [key > 0.62, key > 0.36, key > 0.16],
+                [1.0, 0.82, 0.68],
+                default=0.58,
             )
         else:
             bands = 0.45 + 0.55 * key
@@ -229,7 +244,8 @@ class Renderer:
         facing = np.clip(np.sum(N * V, axis=-1), 0.0, 1.0)  # (h, w)
         rim = (np.power(1.0 - facing, 2.6)[..., None]) * self.rim_strength * self.rim_color
 
-        out = part.color * light + rim
+        base = part.color if C is None else np.clip(C, 0.0, 1.0)
+        out = base * light + rim
 
         if part.gloss > 0:
             L = self.key_dir

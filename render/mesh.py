@@ -176,7 +176,7 @@ def tube(
     return verts, np.array(faces, dtype=np.int32)
 
 
-def part_from(verts, faces, color, gloss: float = 0.0, toon: bool = True) -> Part:
+def part_from(verts, faces, color, gloss: float = 0.0, toon: bool = True, vcolors=None) -> Part:
     color = np.asarray(color, dtype=np.float32)
     if color.max() > 1.0:
         color = color / 255.0
@@ -187,6 +187,7 @@ def part_from(verts, faces, color, gloss: float = 0.0, toon: bool = True) -> Par
         color=color.astype(np.float32),
         gloss=gloss,
         toon=toon,
+        vcolors=None if vcolors is None else np.asarray(vcolors, dtype=np.float32),
     )
 
 

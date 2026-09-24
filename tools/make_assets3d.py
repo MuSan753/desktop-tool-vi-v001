@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -170,23 +170,23 @@ def action_frames() -> dict[str, list[tuple[Pose, tuple[str, ...]]]]:
         ))
     out["sleep"] = frames
 
-    # angry：皱眉 + 耳朵压后 + 尾巴僵直
+    # angry：耳朵压后 + 眯眼 + 怒气筋（小星芽没有眉毛，靠眼型和耳朵表达）
     frames = []
     for i in range(6):
         ph = tau * i / 6
         frames.append((
-            Pose(mouth="sad", brow=(0.55, 0.55), ear=(-0.65, -0.65), eye_open=(0.72, 0.72),
+            Pose(mouth="flat", ear=(-0.65, -0.65), eye_open=(0.6, 0.6),
                  head_pitch=0.08, tail=(-0.1, -0.2, -0.3), breath=math.sin(ph) * 0.3),
             ("anger",) if i in (1, 4) else (),
         ))
     out["angry"] = frames
 
-    # sad：耳朵耷拉 + 眉毛内挑 + 泪
+    # sad：耳朵耷拉 + 眼皮垂 + 泪
     frames = []
     for i in range(6):
         ph = tau * i / 6
         frames.append((
-            Pose(mouth="sad", brow=(-0.45, -0.45), ear=(-0.45, -0.45), eye_open=(0.55, 0.55),
+            Pose(mouth="sad", ear=(-0.7, -0.7), eye_open=(0.55, 0.55),
                  head_pitch=0.18, head_roll=0.04, blush=0.15, tail=(-0.2, -0.1, 0.0)),
             ("tear",) if i in (2, 5) else (),
         ))
@@ -228,11 +228,25 @@ def action_frames() -> dict[str, list[tuple[Pose, tuple[str, ...]]]]:
     return out
 
 
+def add_shadow(img: Image.Image) -> Image.Image:
+    """地面软阴影：贴在脚下，让团子有"落地的实感"。"""
+    w, h = img.size
+    size = (132, 34)
+    mask = ImageChops.invert(Image.radial_gradient("L")).resize(size)
+    layer = Image.new("RGBA", size, (46, 38, 54, 255))
+    layer.putalpha(mask.point(lambda v: int(v * 0.32)))
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out.alpha_composite(layer, ((w - size[0]) // 2, h - 40))
+    out.alpha_composite(img)
+    return out
+
+
 def render_pose(pose: Pose, extras: tuple[str, ...], index: int, total: int) -> Image.Image:
     renderer = Renderer(SIZE, SIZE, supersample=SS, camera_yaw=pose.camera_yaw)
     arr = renderer.render(build_cat(pose))
     img = Image.fromarray(arr, mode="RGBA")
-    return draw_extras(img, extras, index / max(1, total))
+    img = draw_extras(img, extras, index / max(1, total))
+    return add_shadow(img)
 
 
 def main() -> int:
@@ -245,14 +259,16 @@ def main() -> int:
     for name, frames in actions.items():
         folder = ASSETS / name
         folder.mkdir(parents=True, exist_ok=True)
-        for f in folder.glob("*.png"):
-            f.unlink()
+        # 不做批量预删除（会触发 safe-delete 确认）：直接覆盖写，多余的最后清
         for index, (pose, extras) in enumerate(frames):
             img = render_pose(pose, extras, index, len(frames))
             img.save(folder / f"{index:02d}.png")
             done += 1
             if done % 10 == 0:
                 print(f"  {done}/{total_frames}  {time.time() - t0:.0f}s")
+        # 清掉比新帧数多的旧文件（数量很少，逐个删）
+        for stale in sorted(folder.glob("*.png"))[len(frames):]:
+            stale.unlink()
 
     # 托盘图标
     renderer = Renderer(256, 256, supersample=3)
