@@ -39,6 +39,7 @@ assets/
 ├── idle/ walk/ click/         三个动作的 PNG 序列帧
 └── tray.png                   托盘图标
 tools/make_placeholder_assets.py   占位素材生成器
+scripts/build_exe.py               打包脚本（转 ico + 调 PyInstaller）
 ```
 
 ## 换成自己的角色
@@ -50,5 +51,9 @@ tools/make_placeholder_assets.py   占位素材生成器
 
 ```bash
 pip install pyinstaller
-pyinstaller --noconsole --onefile --icon assets/tray.png --add-data "assets;assets" main.py
+python scripts/build_exe.py
 ```
+
+脚本会自动把 `tray.png` 转成 Windows 要的 `.ico`，再打成单文件、无控制台的 exe，产物在 `dist/小桌宠.exe`（约 44 MB）。双击即可运行，不依赖 Python 环境。
+
+`dist/`、`build/`、`*.spec` 都在 `.gitignore` 里，exe 不进版本库。
