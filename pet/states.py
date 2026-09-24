@@ -14,6 +14,9 @@ THINK = "think"
 TALK = "talk"
 SLEEP = "sleep"
 
+# 表情动作（由情绪标签触发，播完自动回 idle）
+EXPRESSIONS = ("happy", "angry", "sad", "surprised", "shy", "curious")
+
 #: 状态 → 播放哪个动作素材；没有对应素材时会回落 idle
 ACTION_OF: dict[str, str] = {
     IDLE: "idle",
@@ -24,17 +27,16 @@ ACTION_OF: dict[str, str] = {
     TALK: "idle",
     SLEEP: "sleep",
 }
+for _expr in EXPRESSIONS:
+    ACTION_OF[_expr] = _expr
+
+_ALL = (IDLE, WALK, DRAG, CLICK, THINK, TALK, SLEEP) + EXPRESSIONS
 
 #: 允许的状态转移（同名转移视为无操作）
-ALLOWED: dict[str, set[str]] = {
-    IDLE: {WALK, CLICK, DRAG, THINK, TALK, SLEEP},
-    WALK: {IDLE, CLICK, DRAG, THINK, TALK, SLEEP},
-    DRAG: {IDLE, WALK, CLICK, THINK, TALK, SLEEP},
-    CLICK: {IDLE, WALK, DRAG, THINK, TALK, SLEEP},
-    THINK: {IDLE, WALK, CLICK, DRAG, TALK, SLEEP},
-    TALK: {IDLE, WALK, CLICK, DRAG, THINK, SLEEP},
-    SLEEP: {IDLE, WALK, CLICK, DRAG, THINK, TALK},
-}
+ALLOWED: dict[str, set[str]] = {state: set(_ALL) - {state} for state in _ALL}
+# 忙碌状态不被表情打断（窗口层还会再挡一层）
+ALLOWED[THINK] -= set(EXPRESSIONS)
+ALLOWED[TALK] -= set(EXPRESSIONS)
 
 
 class StateMachine:

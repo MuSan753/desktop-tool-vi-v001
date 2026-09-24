@@ -78,6 +78,35 @@ class History:
             ).fetchone()
             return int(row["c"] or 0)
 
+    def last_user_text(self) -> str:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT content FROM messages WHERE role='user' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        return row["content"] if row else ""
+
+    def delete_last_pair(self) -> bool:
+        """删掉最后一轮问答（重试时避免历史里出现重复）。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, role FROM messages ORDER BY id DESC LIMIT 2"
+            ).fetchall()
+            if not rows:
+                return False
+            ids: list[int] = []
+            if rows[0]["role"] == "assistant":
+                ids.append(int(rows[0]["id"]))
+                if len(rows) > 1 and rows[1]["role"] == "user":
+                    ids.append(int(rows[1]["id"]))
+            elif rows[0]["role"] == "user":
+                ids.append(int(rows[0]["id"]))
+            if not ids:
+                return False
+            placeholders = ",".join("?" * len(ids))
+            self._conn.execute(f"DELETE FROM messages WHERE id IN ({placeholders})", ids)
+            self._conn.commit()
+            return True
+
     def clear(self) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM messages")

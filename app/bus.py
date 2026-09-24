@@ -27,6 +27,10 @@ class Bus(QObject):
     # 人格切换 / 清空记忆
     persona_changed = Signal(str)
     history_cleared = Signal()
+    # 生成控制
+    cancel_requested = Signal()
+    regenerate_requested = Signal()
+    regenerate_done = Signal()  # 面板收到后撤掉最后一对气泡
 
 
 bus = Bus()

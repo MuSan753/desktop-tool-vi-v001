@@ -142,6 +142,7 @@ class ChatPanel(QWidget):
         self._stream_label: QLabel | None = None
         self._raw = ""
         self._follow_enabled = True
+        self._message_rows: list[QWidget] = []
 
         card = QWidget(self)
         card.setObjectName("card")
@@ -163,6 +164,8 @@ class ChatPanel(QWidget):
 
         title = QLabel("和小猫说话")
         title.setObjectName("title")
+        self.mood_chip = QLabel("")
+        self.mood_chip.setObjectName("status")
         self.combo = QComboBox()
         self.combo.addItems(names())
         self.combo.setToolTip("切换人格")
@@ -184,6 +187,7 @@ class ChatPanel(QWidget):
         self.btn_close.clicked.connect(self.hide)
 
         hrow.addWidget(title)
+        hrow.addWidget(self.mood_chip)
         hrow.addStretch()
         for w in (self.combo, self.btn_pin, self.btn_follow, self.btn_clear, self.btn_close):
             hrow.addWidget(w)
@@ -207,18 +211,40 @@ class ChatPanel(QWidget):
         frow.setContentsMargins(0, 0, 0, 0)
         frow.setSpacing(4)
 
+        # 快捷短语：没话可说的时候点一下就能开始
+        chips_row = QHBoxLayout()
+        chips_row.setSpacing(4)
+        for tip in ("今天过得怎么样", "讲个笑话", "陪我聊会儿", "/help"):
+            chip = QPushButton(tip)
+            chip.clicked.connect(lambda _=False, t=tip: self._quick(tip))
+            chips_row.addWidget(chip)
+        chips_row.addStretch()
+
         send_row = QHBoxLayout()
+        self.btn_stop = QPushButton("■")
+        self.btn_stop.setFixedWidth(34)
+        self.btn_stop.setToolTip("停止生成")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(bus.cancel_requested.emit)
+        self.btn_retry = QPushButton("↻")
+        self.btn_retry.setFixedWidth(34)
+        self.btn_retry.setToolTip("重试上一轮")
+        self.btn_retry.clicked.connect(bus.regenerate_requested.emit)
+
         self.input = InputBox(self)
         self.btn_send = QPushButton("发送")
         self.btn_send.setObjectName("send")
         self.btn_send.setFixedHeight(72)
         self.btn_send.clicked.connect(self._send)
+        send_row.addWidget(self.btn_stop)
+        send_row.addWidget(self.btn_retry)
         send_row.addWidget(self.input, 1)
         send_row.addWidget(self.btn_send)
 
         self.status = QLabel("")
         self.status.setObjectName("status")
 
+        frow.addLayout(chips_row)
         frow.addLayout(send_row)
         frow.addWidget(self.status)
 
@@ -232,6 +258,11 @@ class ChatPanel(QWidget):
         bus.reply_failed.connect(self._on_failed)
         bus.pet_moved.connect(self._follow)
         bus.persona_changed.connect(self._sync_combo)
+        bus.regenerate_done.connect(self._on_regenerated)
+        bus.mood_changed.connect(self._on_mood_chip)
+        bus.reply_started.connect(lambda: self.btn_stop.setEnabled(True))
+        bus.reply_finished.connect(lambda *_: self.btn_stop.setEnabled(False))
+        bus.reply_failed.connect(lambda *_: self.btn_stop.setEnabled(False))
 
     # ---------- 对外 ----------
     def set_persona(self, persona: str) -> None:
@@ -267,15 +298,22 @@ class ChatPanel(QWidget):
 
     # ---------- 内部 ----------
     def _bubble(self, role: str, text: str) -> QLabel:
+        from html import escape
+        import time as _time
+
         row = QWidget()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 2, 0, 2)
-        label = QLabel(text)
+        label = QLabel()
         label.setWordWrap(True)
         label.setMaximumWidth(250)
+        label.setTextFormat(Qt.RichText)
         label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         label.setStyleSheet(USER_BUBBLE if role == "user" else CAT_BUBBLE)
+        body = escape(text or "").replace("\n", "<br>")
+        stamp = _time.strftime("%H:%M")
+        label.setText(f"{body}<br><span style='font-size:9px;color:#8a86a0;'>{stamp}</span>")
         if role == "user":
             lay.addStretch()
             lay.addWidget(label)
@@ -283,6 +321,7 @@ class ChatPanel(QWidget):
             lay.addWidget(label)
             lay.addStretch()
         self._insert(row)
+        self._message_rows.append(row)
         return label
 
     def _insert(self, widget: QWidget) -> None:
@@ -315,14 +354,23 @@ class ChatPanel(QWidget):
     @Slot(str)
     def _on_token(self, chunk: str) -> None:
         self._raw += chunk
-        if self._stream_label is not None:
-            self._stream_label.setText(visible_text(self._raw))
+        self._paint_stream(visible_text(self._raw))
+
+    def _paint_stream(self, text: str, stamp: str = "…") -> None:
+        from html import escape
+
+        if self._stream_label is None:
+            return
+        body = escape(text).replace("\n", "<br>")
+        self._stream_label.setText(f"{body}<br><span style='font-size:9px;color:#8a86a0;'>{stamp}</span>")
 
     @Slot(str, str)
     def _on_finished(self, text: str, provider: str) -> None:
+        import time as _time
+
         if self._stream_label is not None:
             final = text or visible_text(self._raw)
-            self._stream_label.setText(final or "……")
+            self._paint_stream(final or "……", _time.strftime("%H:%M"))
             self._stream_label = None
         self.status.setText(f"来自：{provider}" if provider else "")
         self._raw = ""
@@ -330,9 +378,37 @@ class ChatPanel(QWidget):
     @Slot(str)
     def _on_failed(self, message: str) -> None:
         if self._stream_label is not None:
-            self._stream_label.setText(f"（网络断了：{message}）")
+            self._paint_stream(f"（网络断了：{message}）")
             self._stream_label = None
         self.status.setText("请求失败")
+
+    @Slot()
+    def _on_regenerated(self) -> None:
+        """重试：撤掉最后一对气泡。"""
+        for _ in range(2):
+            if not self._message_rows:
+                break
+            widget = self._message_rows.pop()
+            self.messages.removeWidget(widget)
+            widget.deleteLater()
+
+    @Slot(str)
+    def _on_mood_chip(self, label: str) -> None:
+        self.mood_chip.setText(f"心情：{label}" if label else "")
+
+    def _quick(self, text: str) -> None:
+        self.input.setPlainText(text)
+        self._send()
+
+    def clear_messages(self) -> None:
+        while self.messages.count() > 1:
+            item = self.messages.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        self._message_rows.clear()
+        self._stream_label = None
+        self._raw = ""
 
     # ---------- 位置 / 外观 ----------
     @Slot(int, int, int, int)
@@ -363,13 +439,6 @@ class ChatPanel(QWidget):
             self.combo.blockSignals(True)
             self.combo.setCurrentIndex(index)
             self.combo.blockSignals(False)
-
-    def clear_messages(self) -> None:
-        while self.messages.count() > 1:
-            item = self.messages.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
 
     # ---------- 拖动 ----------
     def mousePressEvent(self, event):  # noqa: N802

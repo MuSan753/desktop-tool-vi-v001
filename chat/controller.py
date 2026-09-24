@@ -41,6 +41,9 @@ class ChatController(QObject):
         self._worker: ChatWorker | None = None
         self._summary_worker: ChatWorker | None = None
 
+        bus.cancel_requested.connect(self.cancel)
+        bus.regenerate_requested.connect(self.regenerate)
+
     @property
     def busy(self) -> bool:
         return self._worker is not None and self._worker.isRunning()
@@ -48,7 +51,12 @@ class ChatController(QObject):
     # ---------- 主流程 ----------
     def ask(self, text: str) -> None:
         text = (text or "").strip()
-        if not text or self.busy:
+        if not text:
+            return
+        if text.startswith("/"):
+            self._command(text)
+            return
+        if self.busy:
             return
 
         self.history.add("user", text)
@@ -69,6 +77,44 @@ class ChatController(QObject):
         if self._worker and self._worker.isRunning():
             self._worker.requestInterruption()
         bus.thinking.emit(False)
+
+    def regenerate(self) -> None:
+        """重试上一轮：删掉最后一问一答再重新问。"""
+        if self.busy:
+            return
+        text = self.history.last_user_text()
+        if not text:
+            self.system_notice.emit("还没有可以重试的消息")
+            return
+        self.history.delete_last_pair()
+        bus.regenerate_done.emit()
+        self.ask(text)
+
+    # ---------- 斜杠命令 ----------
+    def _command(self, text: str) -> None:
+        from chat.persona import PERSONAS
+
+        parts = text[1:].split(maxsplit=1)
+        cmd = parts[0].lower()
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        if cmd in ("clear", "清空"):
+            self.clear_history()
+        elif cmd in ("persona", "人格"):
+            if arg in PERSONAS:
+                self.switch_persona(arg)
+            else:
+                self.system_notice.emit("可用人格：" + " / ".join(PERSONAS))
+        elif cmd in ("mood", "状态"):
+            m = self.mood.state
+            self.system_notice.emit(
+                f"心情 {m.label} ｜ 开心 {m.joy} 精力 {m.energy} 亲密 {m.affinity} 压力 {m.stress}"
+            )
+        elif cmd in ("help", "帮助"):
+            self.system_notice.emit(
+                "命令：/clear 清空对话 ｜ /persona 名字 切换人格 ｜ /mood 查看状态 ｜ /help 本帮助"
+            )
+        else:
+            self.system_notice.emit(f"未知命令 {text}，输入 /help 看看有什么")
 
     # ---------- 回调（都在主线程） ----------
     def _on_token(self, chunk: str) -> None:

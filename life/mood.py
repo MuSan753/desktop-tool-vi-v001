@@ -26,6 +26,17 @@ MOOD_TAGS = [
     "烦躁", "疲惫", "失落", "委屈", "悲伤", "愤怒", "忧虑", "兴奋",
 ]
 
+#: 情绪标签 → 表情动作（pet 层按这个触发对应动画）
+LABEL_ACTION: dict[str, str] = {
+    "开心": "happy", "兴奋": "happy",
+    "期待": "curious", "好奇": "curious",
+    "害羞": "shy",
+    "烦躁": "angry", "愤怒": "angry",
+    "悲伤": "sad", "失落": "sad", "委屈": "sad", "孤独": "sad", "忧虑": "sad",
+    "疲惫": "sleep",
+    "安心": "idle", "平静": "idle",
+}
+
 DIMS = ("joy", "energy", "affinity", "stress")
 
 # 文案里的情绪标记：[[MOOD]]{"label":"开心","joy":5,...}

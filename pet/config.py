@@ -37,7 +37,10 @@ SCALE_MAX = 2.4
 SCALE_STEP = 0.1
 
 # 动作名 → assets 下的目录名，缺素材会自动回落到 idle
-ACTIONS = ("idle", "walk", "click", "think", "sit", "sleep")
+ACTIONS = (
+    "idle", "walk", "click", "think", "sit", "sleep",
+    "happy", "angry", "sad", "surprised", "shy", "curious",
+)
 
 # 离线兜底台词（v1 遗留，作为最后的素材缺省时的保底）
 LINES = [

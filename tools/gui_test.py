@@ -129,6 +129,17 @@ def main() -> int:
     step("可用人格数", len(PERSONAS) == 4, str(list(PERSONAS)))
     step("可见文本工具函数", visible_text("你好\n[[MOOD]]{\"label\":\"开心\"}") == "你好")
 
+    # 情绪标签触发表情动画
+    from pet.states import EXPRESSIONS  # noqa: E402
+
+    bus.mood_changed.emit("愤怒")
+    app.processEvents()
+    step("情绪触发表情动画", pet.mode == "angry", f"当前动作 {pet.mode}")
+    bus.mood_changed.emit("开心")
+    app.processEvents()
+    step("表情可切换", pet.mode == "happy", f"当前动作 {pet.mode}")
+    assert EXPRESSIONS  # 保持 import 有意义
+
     pet.close()
     panel.close()
     app.processEvents()

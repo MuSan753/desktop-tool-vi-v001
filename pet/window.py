@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from app.bus import bus
 from life.idle_talks import pick
-from life.mood import visible_text
+from life.mood import LABEL_ACTION, visible_text
 
 from .animation import load_sets
 from .bubble import Bubble
@@ -242,13 +242,27 @@ class PetWindow(QWidget):
         self.say(pick(self._mood_label))
 
     def _back_to_idle(self) -> None:
-        if self._machine.state != CLICK:
+        if self._machine.is_busy() or self._machine.state == IDLE:
             return
         self._machine.force(IDLE)
         self._frame = 0
         self._frame_timer.setInterval(self._interval())
         self._apply_frame()
         self._mood_timer.start(random.randint(IDLE_MIN_MS, IDLE_MAX_MS))
+
+    def _play_expression(self, action: str) -> None:
+        """播一段表情动画（素材缺失时自动跳过）。"""
+        if action not in self._sets or self._sets[action] is self._sets[IDLE]:
+            return
+        if not self._machine.set(action):
+            return
+        self._frame = 0
+        self._walk_timer.stop()
+        self._mood_timer.stop()
+        self._frame_timer.setInterval(self._interval())
+        self._apply_frame()
+        duration = FRAME_MS.get(action, 150) * max(1, len(self._sets[action])) + 400
+        QTimer.singleShot(min(duration, 2400), self._back_to_idle)
 
     # ---------- 事件总线回调 ----------
     @Slot(bool)
@@ -304,6 +318,9 @@ class PetWindow(QWidget):
     @Slot(str)
     def _on_mood(self, label: str) -> None:
         self._mood_label = label or "平静"
+        action = LABEL_ACTION.get(self._mood_label, "")
+        if action and action != IDLE:
+            self._play_expression(action)
 
     # ---------- 鼠标 / 键盘 ----------
     def mousePressEvent(self, event) -> None:  # noqa: N802
