@@ -6,3 +6,6 @@ venv/
 build/
 dist/
 *.spec
+data/
+_preview.png
+_smoke.log
