@@ -1,0 +1,8 @@
+.workbuddy/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.spec
